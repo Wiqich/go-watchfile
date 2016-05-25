@@ -14,7 +14,7 @@ type Watcher struct {
 	stop     bool
 }
 
-func NewWatcher(path string, inteval time.Duration, callback func(string)) *Watch {
+func NewWatcher(path string, interval time.Duration, callback func(string)) *Watcher {
 	if interval < time.Second {
 		interval = time.Second
 	}
@@ -31,18 +31,18 @@ func (w *Watcher) Start() {
 	var ts time.Time
 	w.stop = false
 	for !w.stop {
-		info, err := os.Stat(path)
+		info, err := os.Stat(w.path)
 		if err == nil {
 			ts = info.ModTime()
 			break
 		}
-		time.Sleep(interval)
+		time.Sleep(w.interval)
 	}
-	for !w.Stop {
-		time.Sleep(interval)
-		info, err := os.Stat(path)
+	for !w.stop {
+		time.Sleep(w.interval)
+		info, err := os.Stat(w.path)
 		if err == nil && info.ModTime().After(ts) {
-			callback(path)
+			w.callback(w.path)
 			ts = info.ModTime()
 		}
 	}
