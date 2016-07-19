@@ -1,0 +1,122 @@
+package watchfile
+
+import (
+	"io/ioutil"
+	"os"
+	"testing"
+	"time"
+)
+
+func TestNewLocalWatcher(t *testing.T) {
+	// no path
+	if _, err := NewLocalWatcher("", 0, func(error) {}, 0); err != errNoPath {
+		t.Error("unexpected error:", err)
+		t.FailNow()
+	}
+	// no callback
+	if _, err := NewLocalWatcher("example.txt", 0, nil, 0); err != errNoCallback {
+		t.Error("unexpected error:", err)
+		t.FailNow()
+	}
+	if watcher, err := NewLocalWatcher("example.txt", 0, func(error) {}, 0); err != nil {
+		t.Error("unexpected error:", err)
+		t.FailNow()
+	} else if watcher.interval < time.Second {
+		t.Error("unexpected interval:", watcher.interval)
+		t.FailNow()
+	}
+}
+
+func TestLocalWatcherStart(t *testing.T) {
+	var cbErr error
+	callback := func(err error) { cbErr = err }
+	os.Remove("example1.txt")
+	watcher, _ := NewLocalWatcher("example1.txt", time.Second, callback, 0)
+	// stop stopped watcher
+	if err := watcher.Stop(); err == nil {
+		t.Error("stop stopped watcher success")
+		t.FailNow()
+	}
+	// running
+	watcher.running = true
+	if err := watcher.Start(); err == nil {
+		t.Error("start running watcher success")
+		t.FailNow()
+	}
+	watcher.running = false
+	// file not exists
+	if err := watcher.Start(); err == nil {
+		t.Error("start with invalid path success")
+		t.FailNow()
+	}
+	// read file fail
+	watcher.options |= CheckMD5
+	os.Remove("example2.txt")
+	os.Mkdir("example2.txt", 0755)
+	defer os.Remove("example2.txt")
+	watcher.path = "example2.txt"
+	if err := watcher.Start(); err == nil {
+		t.Error("start with invalid file success")
+		t.FailNow()
+	}
+	// read file success
+	os.Remove("example3.txt")
+	ioutil.WriteFile("example3.txt", []byte{}, 0755)
+	watcher.path = "example3.txt"
+	defer os.Remove("example3.txt")
+	if err := watcher.Start(); err != nil {
+		t.Error("start fail:", err.Error())
+		t.FailNow()
+	}
+	if err := watcher.Stop(); err != nil {
+		t.Error("stop fail:", err.Error())
+		t.FailNow()
+	}
+}
+
+func TestLocalWatcherStop(t *testing.T) {
+	var cbErr error
+	callback := func(err error) { cbErr = err }
+	os.Remove("example.txt")
+	ioutil.WriteFile("example.txt", []byte{}, 0755)
+	defer os.Remove("example.txt")
+	watcher, _ := NewLocalWatcher("example.txt", time.Second, callback, CheckMD5)
+	watcher.interval = time.Millisecond * 200
+	if err := watcher.Start(); err != nil {
+		t.Error("start fail:", err.Error())
+		t.FailNow()
+	}
+	defer watcher.Stop()
+	// cover empty loop
+	time.Sleep(time.Millisecond * 400)
+	// stat fail
+	os.Remove("example.txt")
+	time.Sleep(time.Millisecond * 400)
+	if cbErr == nil {
+		t.Error("unexpected cbErr: nil")
+		t.FailNow()
+	}
+	time.Sleep(time.Second)
+	if err := ioutil.WriteFile("example.txt", []byte("foo"), 0755); err != nil {
+		t.Error("recreate example.txt fail:", err.Error())
+		return
+	}
+	time.Sleep(time.Millisecond * 400)
+	if cbErr != nil {
+		t.Error("unexpected cbErr:", cbErr.Error())
+		t.FailNow()
+	}
+	// same md5
+	time.Sleep(time.Second)
+	os.Chtimes("example.txt", time.Now(), time.Now())
+	time.Sleep(time.Second)
+	// reread fail
+	cbErr = nil
+	os.Remove("example.txt")
+	os.Mkdir("example.txt", 0755)
+	time.Sleep(time.Second)
+	if cbErr == nil {
+		t.Error("unexpected cbErr: nil")
+		t.FailNow()
+	}
+}
